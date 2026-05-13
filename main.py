@@ -1,21 +1,15 @@
 import ccxt
 import time
-import csv
+import os
+import psycopg2
 from collections import Counter
 from datetime import datetime, UTC
 
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
 exchange_names = [
-    'gateio',
-    'mexc',
-    'kucoin',
-    'bitget',
-    'bybit',
-    'coinex',
-    'bingx',
-    'bitmart',
-    'lbank',
-    'digifinex',
-    'bitrue'
+    'gateio', 'mexc', 'kucoin', 'bitget', 'bybit',
+    'coinex', 'bingx', 'bitmart', 'lbank', 'digifinex', 'bitrue'
 ]
 
 symbols = [
@@ -30,13 +24,68 @@ symbols = [
 ORDERBOOK_LIMIT = 20
 SIMULATED_TRADE_USDT = 100
 SCAN_INTERVAL_SECONDS = 60
-
 ESTIMATED_TOTAL_FEES_PERCENT = 0.20
 MIN_DISPLAY_NET_SPREAD = 0.20
 
-CSV_FILE = 'spread_log.csv'
-
 best_since_start = None
+
+
+def get_db_connection():
+    if not DATABASE_URL:
+        raise Exception("DATABASE_URL is missing.")
+
+    return psycopg2.connect(DATABASE_URL)
+
+
+def init_db():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS spreads (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMPTZ NOT NULL,
+            symbol TEXT NOT NULL,
+            buy_exchange TEXT NOT NULL,
+            sell_exchange TEXT NOT NULL,
+            gross_spread DOUBLE PRECISION,
+            net_spread DOUBLE PRECISION,
+            buy_liquidity DOUBLE PRECISION,
+            sell_liquidity DOUBLE PRECISION,
+            simulated_trade_usdt DOUBLE PRECISION
+        );
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def insert_spreads(rows):
+    if not rows:
+        return
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.executemany("""
+        INSERT INTO spreads (
+            timestamp,
+            symbol,
+            buy_exchange,
+            sell_exchange,
+            gross_spread,
+            net_spread,
+            buy_liquidity,
+            sell_liquidity,
+            simulated_trade_usdt
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+    """, rows)
+
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def calculate_liquidity(orders):
@@ -95,12 +144,6 @@ def simulate_market_sell(bids, token_amount):
     return total_usdt_received
 
 
-def write_to_csv(rows):
-    with open(CSV_FILE, 'a', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerows(rows)
-
-
 def scan_market():
     global best_since_start
 
@@ -109,7 +152,7 @@ def scan_market():
     print("====================================")
 
     all_spreads = []
-    csv_rows = []
+    db_rows = []
     best_this_scan = None
 
     exchange_stats = {
@@ -130,10 +173,7 @@ def scan_market():
         for name in exchange_names:
             try:
                 exchange_class = getattr(ccxt, name)
-
-                exchange = exchange_class({
-                    'enableRateLimit': True
-                })
+                exchange = exchange_class({'enableRateLimit': True})
 
                 orderbook = exchange.fetch_order_book(
                     symbol,
@@ -189,8 +229,10 @@ def scan_market():
                 buy_liquidity = buy_exchange['ask_liquidity']
                 sell_liquidity = sell_exchange['bid_liquidity']
 
+                timestamp = datetime.now(UTC)
+
                 spread_data = {
-                    'timestamp': datetime.now(UTC).isoformat(),
+                    'timestamp': timestamp,
                     'symbol': symbol,
                     'buy_exchange': buy_exchange['exchange'],
                     'sell_exchange': sell_exchange['exchange'],
@@ -204,8 +246,8 @@ def scan_market():
                 token_spreads.append(spread_data)
                 all_spreads.append(spread_data)
 
-                csv_rows.append([
-                    spread_data['timestamp'],
+                db_rows.append([
+                    timestamp,
                     symbol,
                     buy_exchange['exchange'],
                     sell_exchange['exchange'],
@@ -273,7 +315,7 @@ def scan_market():
             if dominant_sell[1] >= 3:
                 print("⚠️ POSSIBLE SINGLE EXCHANGE PREMIUM DETECTED")
 
-    write_to_csv(csv_rows)
+    insert_spreads(db_rows)
 
     top_spreads = sorted(
         [
@@ -345,9 +387,12 @@ def scan_market():
         )
 
 
-while True:
-    scan_market()
+if __name__ == "__main__":
+    init_db()
 
-    print(f"\nWaiting {SCAN_INTERVAL_SECONDS} seconds before next scan...")
+    while True:
+        scan_market()
 
-    time.sleep(SCAN_INTERVAL_SECONDS)
+        print(f"\nWaiting {SCAN_INTERVAL_SECONDS} seconds before next scan...")
+
+        time.sleep(SCAN_INTERVAL_SECONDS)
