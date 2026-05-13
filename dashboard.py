@@ -44,7 +44,6 @@ def load_data():
 
 try:
     df = load_data()
-
 except Exception as e:
     st.error(f"Database read error: {e}")
     st.stop()
@@ -66,6 +65,26 @@ numeric_cols = [
 for col in numeric_cols:
     df[col] = pd.to_numeric(df[col], errors="coerce")
 
+df["route"] = (
+    df["symbol"] + " | " +
+    df["buy_exchange"].str.upper() + " -> " +
+    df["sell_exchange"].str.upper()
+)
+
+route_counts = df.groupby("route")["route"].transform("count")
+
+df["min_liquidity"] = df[["buy_liquidity", "sell_liquidity"]].min(axis=1)
+
+df["liquidity_factor"] = (df["min_liquidity"] / 1000).clip(upper=5)
+
+df["recurrence_factor"] = (route_counts / 10).clip(upper=3)
+
+df["quality_score"] = (
+    df["net_spread"].clip(lower=0) *
+    (1 + df["liquidity_factor"]) *
+    (1 + df["recurrence_factor"])
+)
+
 st.sidebar.header("Filters")
 
 min_net_spread = st.sidebar.slider(
@@ -74,6 +93,14 @@ min_net_spread = st.sidebar.slider(
     max_value=2.0,
     value=0.0,
     step=0.05
+)
+
+min_quality_score = st.sidebar.slider(
+    "Minimum Quality Score",
+    min_value=0.0,
+    max_value=20.0,
+    value=0.0,
+    step=0.5
 )
 
 min_buy_liquidity = st.sidebar.slider(
@@ -99,6 +126,7 @@ selected_symbols = st.sidebar.multiselect(
 
 filtered = df[
     (df["net_spread"] >= min_net_spread) &
+    (df["quality_score"] >= min_quality_score) &
     (df["buy_liquidity"] >= min_buy_liquidity) &
     (df["sell_liquidity"] >= min_sell_liquidity)
 ].copy()
@@ -106,14 +134,41 @@ filtered = df[
 if selected_symbols:
     filtered = filtered[filtered["symbol"].isin(selected_symbols)]
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 col1.metric("Total Loaded Rows", len(df))
 col2.metric("Filtered Rows", len(filtered))
 col3.metric("Best Net Spread", f"{df['net_spread'].max():.2f}%")
 col4.metric("Best Gross Spread", f"{df['gross_spread'].max():.2f}%")
+col5.metric("Best Quality Score", f"{df['quality_score'].max():.2f}")
 
 st.divider()
+
+st.subheader("Top Quality Opportunities")
+
+top_quality = filtered.sort_values(
+    by="quality_score",
+    ascending=False
+).head(30)
+
+st.dataframe(
+    top_quality[
+        [
+            "timestamp",
+            "symbol",
+            "buy_exchange",
+            "sell_exchange",
+            "net_spread",
+            "gross_spread",
+            "buy_liquidity",
+            "sell_liquidity",
+            "min_liquidity",
+            "quality_score"
+        ]
+    ],
+    use_container_width=True,
+    hide_index=True
+)
 
 st.subheader("Top Net Spreads With Liquidity")
 
@@ -141,9 +196,11 @@ if not positive.empty:
             avg_net_spread=("net_spread", "mean"),
             max_net_spread=("net_spread", "max"),
             avg_buy_liquidity=("buy_liquidity", "mean"),
-            avg_sell_liquidity=("sell_liquidity", "mean")
+            avg_sell_liquidity=("sell_liquidity", "mean"),
+            avg_quality_score=("quality_score", "mean"),
+            max_quality_score=("quality_score", "max")
         )
-        .sort_values(by=["count", "max_net_spread"], ascending=False)
+        .sort_values(by=["max_quality_score", "count"], ascending=False)
         .reset_index()
     )
 
@@ -163,11 +220,13 @@ symbol_stats = (
     .agg(
         avg_net_spread=("net_spread", "mean"),
         max_net_spread=("net_spread", "max"),
+        avg_quality_score=("quality_score", "mean"),
+        max_quality_score=("quality_score", "max"),
         avg_buy_liquidity=("buy_liquidity", "mean"),
         avg_sell_liquidity=("sell_liquidity", "mean"),
         count=("net_spread", "count")
     )
-    .sort_values(by="max_net_spread", ascending=False)
+    .sort_values(by="max_quality_score", ascending=False)
     .reset_index()
 )
 
@@ -187,9 +246,11 @@ if not positive.empty:
             buy_signals=("net_spread", "count"),
             avg_net_spread=("net_spread", "mean"),
             max_net_spread=("net_spread", "max"),
+            avg_quality_score=("quality_score", "mean"),
+            max_quality_score=("quality_score", "max"),
             avg_buy_liquidity=("buy_liquidity", "mean")
         )
-        .sort_values(by="buy_signals", ascending=False)
+        .sort_values(by="max_quality_score", ascending=False)
         .reset_index()
     )
 
@@ -205,9 +266,11 @@ if not positive.empty:
             sell_signals=("net_spread", "count"),
             avg_net_spread=("net_spread", "mean"),
             max_net_spread=("net_spread", "max"),
+            avg_quality_score=("quality_score", "mean"),
+            max_quality_score=("quality_score", "max"),
             avg_sell_liquidity=("sell_liquidity", "mean")
         )
-        .sort_values(by="sell_signals", ascending=False)
+        .sort_values(by="max_quality_score", ascending=False)
         .reset_index()
     )
 
@@ -218,7 +281,7 @@ st.subheader("Buy/Sell Exchange Matrix")
 if not positive.empty:
     matrix = pd.pivot_table(
         positive,
-        values="net_spread",
+        values="quality_score",
         index="buy_exchange",
         columns="sell_exchange",
         aggfunc="max",
