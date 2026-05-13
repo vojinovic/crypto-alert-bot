@@ -2,6 +2,7 @@ import os
 import streamlit as st
 import pandas as pd
 import psycopg2
+import streamlit.components.v1 as components
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -40,6 +41,28 @@ def load_data():
     conn.close()
 
     return df
+
+
+def build_exchange_link(exchange, symbol):
+    pair = symbol.replace("/", "")
+
+    exchange = exchange.lower()
+
+    urls = {
+        "bybit": f"https://www.bybit.com/en/trade/spot/{pair}",
+        "bingx": f"https://bingx.com/en-us/spot/{pair}",
+        "kucoin": f"https://www.kucoin.com/trade/{pair}",
+        "gateio": f"https://www.gate.io/trade/{pair}",
+        "bitget": f"https://www.bitget.com/spot/{pair}",
+        "mexc": f"https://www.mexc.com/exchange/{pair}",
+        "coinex": f"https://www.coinex.com/en/exchange/{pair}",
+        "lbank": f"https://www.lbank.com/trade/{pair.lower()}",
+        "digifinex": f"https://www.digifinex.com/en-ww/trade/{pair}",
+        "bitrue": f"https://www.bitrue.com/trade/{pair}",
+        "bitmart": f"https://www.bitmart.com/trade/en-US?symbol={pair}",
+    }
+
+    return urls.get(exchange, "#")
 
 
 try:
@@ -106,7 +129,7 @@ min_quality_score = st.sidebar.slider(
 min_buy_liquidity = st.sidebar.slider(
     "Minimum Buy Liquidity $",
     min_value=0,
-    max_value=10000,
+    max_value=100000,
     value=0,
     step=100
 )
@@ -114,7 +137,7 @@ min_buy_liquidity = st.sidebar.slider(
 min_sell_liquidity = st.sidebar.slider(
     "Minimum Sell Liquidity $",
     min_value=0,
-    max_value=10000,
+    max_value=100000,
     value=0,
     step=100
 )
@@ -149,25 +172,43 @@ st.subheader("Top Quality Opportunities")
 top_quality = filtered.sort_values(
     by="quality_score",
     ascending=False
-).head(30)
+).head(30).copy()
 
-st.dataframe(
-    top_quality[
-        [
-            "timestamp",
-            "symbol",
-            "buy_exchange",
-            "sell_exchange",
-            "net_spread",
-            "gross_spread",
-            "buy_liquidity",
-            "sell_liquidity",
-            "min_liquidity",
-            "quality_score"
-        ]
-    ],
-    use_container_width=True,
-    hide_index=True
+display_df = top_quality.copy()
+
+display_df["buy_exchange"] = display_df.apply(
+    lambda row:
+    f'<a href="{build_exchange_link(row["buy_exchange"], row["symbol"])}" target="_blank">{row["buy_exchange"]}</a>',
+    axis=1
+)
+
+display_df["sell_exchange"] = display_df.apply(
+    lambda row:
+    f'<a href="{build_exchange_link(row["sell_exchange"], row["symbol"])}" target="_blank">{row["sell_exchange"]}</a>',
+    axis=1
+)
+
+html_table = display_df[
+    [
+        "timestamp",
+        "symbol",
+        "buy_exchange",
+        "sell_exchange",
+        "net_spread",
+        "gross_spread",
+        "buy_liquidity",
+        "sell_liquidity",
+        "quality_score"
+    ]
+].to_html(
+    escape=False,
+    index=False
+)
+
+components.html(
+    html_table,
+    height=700,
+    scrolling=True
 )
 
 st.subheader("Top Net Spreads With Liquidity")
