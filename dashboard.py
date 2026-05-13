@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
-import time
 
 CSV_FILE = Path("spread_log.csv")
 
@@ -12,37 +11,35 @@ st.set_page_config(
 
 st.title("Crypto Spread Scanner Dashboard")
 
-auto_refresh = st.sidebar.checkbox("Auto Refresh", value=True)
-
-refresh_seconds = st.sidebar.slider(
-    "Refresh Interval Seconds",
-    min_value=5,
-    max_value=60,
-    value=10,
-    step=5
-)
-
-if auto_refresh:
-    time.sleep(refresh_seconds)
-    st.rerun()
-
 if not CSV_FILE.exists():
-    st.warning("spread_log.csv još ne postoji. Pusti bota da napravi bar jedan scan.")
+    st.warning("spread_log.csv još ne postoji.")
     st.stop()
 
-df = pd.read_csv(
-    CSV_FILE,
-    names=[
-        "timestamp",
-        "symbol",
-        "buy_exchange",
-        "sell_exchange",
-        "gross_spread",
-        "net_spread"
-    ]
-)
+try:
+    df = pd.read_csv(
+        CSV_FILE,
+        names=[
+            "timestamp",
+            "symbol",
+            "buy_exchange",
+            "sell_exchange",
+            "gross_spread",
+            "net_spread"
+        ]
+    )
 
-df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+except Exception as e:
+    st.error(f"CSV read error: {e}")
+    st.stop()
+
+if df.empty:
+    st.warning("CSV je prazan.")
+    st.stop()
+
+df["timestamp"] = pd.to_datetime(
+    df["timestamp"],
+    errors="coerce"
+)
 
 st.sidebar.header("Filters")
 
@@ -69,16 +66,26 @@ selected_sell_exchanges = st.sidebar.multiselect(
     sorted(df["sell_exchange"].dropna().unique())
 )
 
-filtered = df[df["net_spread"] >= min_net_spread]
+filtered = df.copy()
+
+filtered = filtered[
+    filtered["net_spread"] >= min_net_spread
+]
 
 if selected_symbols:
-    filtered = filtered[filtered["symbol"].isin(selected_symbols)]
+    filtered = filtered[
+        filtered["symbol"].isin(selected_symbols)
+    ]
 
 if selected_buy_exchanges:
-    filtered = filtered[filtered["buy_exchange"].isin(selected_buy_exchanges)]
+    filtered = filtered[
+        filtered["buy_exchange"].isin(selected_buy_exchanges)
+    ]
 
 if selected_sell_exchanges:
-    filtered = filtered[filtered["sell_exchange"].isin(selected_sell_exchanges)]
+    filtered = filtered[
+        filtered["sell_exchange"].isin(selected_sell_exchanges)
+    ]
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -86,8 +93,16 @@ col1.metric("Total Logged Rows", len(df))
 col2.metric("Filtered Rows", len(filtered))
 
 if not df.empty:
-    col3.metric("Best Net Spread", f"{df['net_spread'].max():.2f}%")
-    col4.metric("Best Gross Spread", f"{df['gross_spread'].max():.2f}%")
+
+    col3.metric(
+        "Best Net Spread",
+        f"{df['net_spread'].max():.2f}%"
+    )
+
+    col4.metric(
+        "Best Gross Spread",
+        f"{df['gross_spread'].max():.2f}%"
+    )
 
 st.divider()
 
@@ -104,20 +119,28 @@ st.dataframe(
     hide_index=True
 )
 
+positive = filtered[
+    filtered["net_spread"] > 0
+].copy()
+
 st.subheader("Top Recurring Routes")
 
-positive = filtered[filtered["net_spread"] > 0].copy()
-
 if not positive.empty:
+
     route_stats = (
         positive
-        .groupby(["symbol", "buy_exchange", "sell_exchange"])
+        .groupby(
+            ["symbol", "buy_exchange", "sell_exchange"]
+        )
         .agg(
             count=("net_spread", "count"),
             avg_net_spread=("net_spread", "mean"),
             max_net_spread=("net_spread", "max")
         )
-        .sort_values(by=["count", "max_net_spread"], ascending=False)
+        .sort_values(
+            by=["count", "max_net_spread"],
+            ascending=False
+        )
         .reset_index()
     )
 
@@ -126,8 +149,10 @@ if not positive.empty:
         use_container_width=True,
         hide_index=True
     )
+
 else:
-    st.info("Nema pozitivnih spreadova za recurring routes.")
+
+    st.info("No positive recurring routes found.")
 
 st.subheader("Best Average Net Spread By Symbol")
 
@@ -139,7 +164,10 @@ symbol_stats = (
         max_net_spread=("net_spread", "max"),
         count=("net_spread", "count")
     )
-    .sort_values(by="max_net_spread", ascending=False)
+    .sort_values(
+        by="max_net_spread",
+        ascending=False
+    )
     .reset_index()
 )
 
@@ -151,47 +179,58 @@ st.dataframe(
 
 st.subheader("Buy Exchange Stats")
 
-buy_stats = (
-    positive
-    .groupby("buy_exchange")
-    .agg(
-        buy_signals=("net_spread", "count"),
-        avg_net_spread=("net_spread", "mean"),
-        max_net_spread=("net_spread", "max")
-    )
-    .sort_values(by="buy_signals", ascending=False)
-    .reset_index()
-)
+if not positive.empty:
 
-st.dataframe(
-    buy_stats,
-    use_container_width=True,
-    hide_index=True
-)
+    buy_stats = (
+        positive
+        .groupby("buy_exchange")
+        .agg(
+            buy_signals=("net_spread", "count"),
+            avg_net_spread=("net_spread", "mean"),
+            max_net_spread=("net_spread", "max")
+        )
+        .sort_values(
+            by="buy_signals",
+            ascending=False
+        )
+        .reset_index()
+    )
+
+    st.dataframe(
+        buy_stats,
+        use_container_width=True,
+        hide_index=True
+    )
 
 st.subheader("Sell Exchange Stats")
 
-sell_stats = (
-    positive
-    .groupby("sell_exchange")
-    .agg(
-        sell_signals=("net_spread", "count"),
-        avg_net_spread=("net_spread", "mean"),
-        max_net_spread=("net_spread", "max")
+if not positive.empty:
+
+    sell_stats = (
+        positive
+        .groupby("sell_exchange")
+        .agg(
+            sell_signals=("net_spread", "count"),
+            avg_net_spread=("net_spread", "mean"),
+            max_net_spread=("net_spread", "max")
+        )
+        .sort_values(
+            by="sell_signals",
+            ascending=False
+        )
+        .reset_index()
     )
-    .sort_values(by="sell_signals", ascending=False)
-    .reset_index()
-)
 
-st.dataframe(
-    sell_stats,
-    use_container_width=True,
-    hide_index=True
-)
+    st.dataframe(
+        sell_stats,
+        use_container_width=True,
+        hide_index=True
+    )
 
-st.subheader("Buy/Sell Exchange Route Matrix")
+st.subheader("Buy/Sell Exchange Matrix")
 
 if not positive.empty:
+
     matrix = pd.pivot_table(
         positive,
         values="net_spread",
@@ -205,8 +244,6 @@ if not positive.empty:
         matrix,
         use_container_width=True
     )
-else:
-    st.info("Nema pozitivnih spreadova za matrix.")
 
 st.subheader("Net Spread Over Time")
 
@@ -217,10 +254,13 @@ chart_data = (
 )
 
 if not chart_data.empty:
-    st.line_chart(
-        chart_data,
-        x="timestamp",
-        y="net_spread"
-    )
+
+    chart_df = chart_data[
+        ["timestamp", "net_spread"]
+    ].set_index("timestamp")
+
+    st.line_chart(chart_df)
+
 else:
-    st.info("Nema dovoljno podataka za chart.")
+
+    st.info("No chart data available.")
