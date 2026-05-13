@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
+import time
 
 CSV_FILE = Path("spread_log.csv")
 
@@ -10,6 +11,20 @@ st.set_page_config(
 )
 
 st.title("Crypto Spread Scanner Dashboard")
+
+auto_refresh = st.sidebar.checkbox("Auto Refresh", value=True)
+
+refresh_seconds = st.sidebar.slider(
+    "Refresh Interval Seconds",
+    min_value=5,
+    max_value=60,
+    value=10,
+    step=5
+)
+
+if auto_refresh:
+    time.sleep(refresh_seconds)
+    st.rerun()
 
 if not CSV_FILE.exists():
     st.warning("spread_log.csv još ne postoji. Pusti bota da napravi bar jedan scan.")
@@ -89,6 +104,31 @@ st.dataframe(
     hide_index=True
 )
 
+st.subheader("Top Recurring Routes")
+
+positive = filtered[filtered["net_spread"] > 0].copy()
+
+if not positive.empty:
+    route_stats = (
+        positive
+        .groupby(["symbol", "buy_exchange", "sell_exchange"])
+        .agg(
+            count=("net_spread", "count"),
+            avg_net_spread=("net_spread", "mean"),
+            max_net_spread=("net_spread", "max")
+        )
+        .sort_values(by=["count", "max_net_spread"], ascending=False)
+        .reset_index()
+    )
+
+    st.dataframe(
+        route_stats.head(20),
+        use_container_width=True,
+        hide_index=True
+    )
+else:
+    st.info("Nema pozitivnih spreadova za recurring routes.")
+
 st.subheader("Best Average Net Spread By Symbol")
 
 symbol_stats = (
@@ -112,7 +152,7 @@ st.dataframe(
 st.subheader("Buy Exchange Stats")
 
 buy_stats = (
-    filtered[filtered["net_spread"] > 0]
+    positive
     .groupby("buy_exchange")
     .agg(
         buy_signals=("net_spread", "count"),
@@ -132,7 +172,7 @@ st.dataframe(
 st.subheader("Sell Exchange Stats")
 
 sell_stats = (
-    filtered[filtered["net_spread"] > 0]
+    positive
     .groupby("sell_exchange")
     .agg(
         sell_signals=("net_spread", "count"),
@@ -148,6 +188,25 @@ st.dataframe(
     use_container_width=True,
     hide_index=True
 )
+
+st.subheader("Buy/Sell Exchange Route Matrix")
+
+if not positive.empty:
+    matrix = pd.pivot_table(
+        positive,
+        values="net_spread",
+        index="buy_exchange",
+        columns="sell_exchange",
+        aggfunc="max",
+        fill_value=0
+    )
+
+    st.dataframe(
+        matrix,
+        use_container_width=True
+    )
+else:
+    st.info("Nema pozitivnih spreadova za matrix.")
 
 st.subheader("Net Spread Over Time")
 
