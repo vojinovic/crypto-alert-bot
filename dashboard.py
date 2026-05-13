@@ -1,8 +1,9 @@
+import os
 import streamlit as st
 import pandas as pd
-from pathlib import Path
+import psycopg2
 
-CSV_FILE = Path("spread_log.csv")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 st.set_page_config(
     page_title="Crypto Spread Scanner",
@@ -11,24 +12,46 @@ st.set_page_config(
 
 st.title("Crypto Spread Scanner Dashboard")
 
-if not CSV_FILE.exists():
-    st.warning("spread_log.csv još ne postoji.")
+if not DATABASE_URL:
+    st.error("DATABASE_URL is missing.")
     st.stop()
 
-df = pd.read_csv(
-    CSV_FILE,
-    names=[
-        "timestamp",
-        "symbol",
-        "buy_exchange",
-        "sell_exchange",
-        "gross_spread",
-        "net_spread",
-        "buy_liquidity",
-        "sell_liquidity",
-        "simulated_trade_usdt"
-    ]
-)
+
+def load_data():
+    conn = psycopg2.connect(DATABASE_URL)
+
+    query = """
+        SELECT
+            timestamp,
+            symbol,
+            buy_exchange,
+            sell_exchange,
+            gross_spread,
+            net_spread,
+            buy_liquidity,
+            sell_liquidity,
+            simulated_trade_usdt
+        FROM spreads
+        ORDER BY timestamp DESC
+        LIMIT 50000;
+    """
+
+    df = pd.read_sql(query, conn)
+    conn.close()
+
+    return df
+
+
+try:
+    df = load_data()
+
+except Exception as e:
+    st.error(f"Database read error: {e}")
+    st.stop()
+
+if df.empty:
+    st.warning("Database is empty. Wait for the worker to finish a scan.")
+    st.stop()
 
 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 
@@ -85,7 +108,7 @@ if selected_symbols:
 
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Total Rows", len(df))
+col1.metric("Total Loaded Rows", len(df))
 col2.metric("Filtered Rows", len(filtered))
 col3.metric("Best Net Spread", f"{df['net_spread'].max():.2f}%")
 col4.metric("Best Gross Spread", f"{df['gross_spread'].max():.2f}%")
