@@ -50,7 +50,7 @@ def build_exchange_link(exchange, symbol):
     urls = {
         "bybit": f"https://www.bybit.com/en/trade/spot/{pair}",
         "bingx": f"https://bingx.com/en-us/spot/{pair}",
-        "kucoin": f"https://www.kucoin.com/trade/{pair}",
+        "kucoin": f"https://www.kucoin.com/trade/{symbol.replace('/', '-')}",
         "gateio": f"https://www.gate.io/trade/{pair}",
         "bitget": f"https://www.bitget.com/spot/{pair}",
         "mexc": f"https://www.mexc.com/exchange/{pair}",
