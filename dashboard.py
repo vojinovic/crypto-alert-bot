@@ -205,10 +205,55 @@ html_table = display_df[
     index=False
 )
 
-components.html(
-    html_table,
-    height=700,
-    scrolling=True
+st.subheader("Top Quality Opportunities")
+
+top_quality = filtered.sort_values(
+    by="quality_score",
+    ascending=False
+).head(30).copy()
+
+display_df = top_quality.copy()
+
+display_df["BUY LINK"] = display_df.apply(
+    lambda row:
+    build_exchange_link(row["buy_exchange"], row["symbol"]),
+    axis=1
+)
+
+display_df["SELL LINK"] = display_df.apply(
+    lambda row:
+    build_exchange_link(row["sell_exchange"], row["symbol"]),
+    axis=1
+)
+
+st.dataframe(
+    display_df[
+        [
+            "timestamp",
+            "symbol",
+            "buy_exchange",
+            "sell_exchange",
+            "net_spread",
+            "gross_spread",
+            "buy_liquidity",
+            "sell_liquidity",
+            "quality_score",
+            "BUY LINK",
+            "SELL LINK"
+        ]
+    ],
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "BUY LINK": st.column_config.LinkColumn(
+            "BUY",
+            display_text="Open Buy Pair"
+        ),
+        "SELL LINK": st.column_config.LinkColumn(
+            "SELL",
+            display_text="Open Sell Pair"
+        )
+    }
 )
 
 st.subheader("Top Net Spreads With Liquidity")
