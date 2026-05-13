@@ -2,7 +2,6 @@ import os
 import streamlit as st
 import pandas as pd
 import psycopg2
-import streamlit.components.v1 as components
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
