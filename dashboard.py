@@ -56,7 +56,7 @@ def build_exchange_link(exchange, symbol):
         "mexc": f"https://www.mexc.com/exchange/{pair}",
         "coinex": f"https://www.coinex.com/en/exchange/{pair}",
         "lbank": f"https://www.lbank.com/trade/{pair.lower()}",
-        "digifinex": f"https://www.digifinex.com/en-ww/exchange/{symbol.replace('/', '_')}",
+        "digifinex": "https://www.digifinex.com/",
         "bitrue": f"https://www.bitrue.com/trade/{pair}",
         "bitmart": f"https://www.bitmart.com/trade/en-US?symbol={pair}",
     }
